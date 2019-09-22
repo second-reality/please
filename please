@@ -1,0 +1,950 @@
+#!/usr/bin/env bash
+
+# when piping several process, return error code of one of them if it fails
+set -o pipefail
+# report unitialized variables
+set -u
+[ -z "${PLEASE_DEBUG+x}" ] || set -x
+
+# This is please, a script which helps developer to do all stuff he needs
+# help function is available for each feature and is the documentation for it
+
+# to add a new feature:
+# - create function to do it
+# - create help to document it (that is written in ReST format)
+# - add feature in driver_data
+
+############################# Global variables ###########################
+# for man formatting
+export MANWIDTH=80
+
+# current please path
+please_bin="$(readlink -f "$0")"
+
+# build
+build_directory_name="build"
+gcc_lto_flag="-flto"
+gcc_x64_full_path="/usr/bin/gcc"
+gxx_x64_full_path="/usr/bin/g++"
+gcc_ar_x64_full_path="/usr/bin/gcc-ar"
+gcc_ranlib_x64_full_path="/usr/bin/gcc-ranlib"
+qemu_x64_full_path="/usr/bin/qemu-x86_64"
+qemu_x64_prefix="/"
+x64_prefix="/usr"
+loader_x64_full_path="/lib64/ld-linux-x86-64.so.2"
+
+#env
+docker_build_env_name="work"
+docker_namespace="mine"
+docker_context="tools/docker"
+
+# doc
+doc_input_path="docs"
+doc_output_path="$build_directory_name/docs"
+doc_doxygen_cfg_path="$doc_input_path/doxygen.cfg"
+
+# jenkins param
+jenkins_machine="dev.com"
+jenkins_id="tools/jenkins/ssh_keys/id_rsa"
+jenkins_user="jenkins"
+jenkins_site_jenkins_port="8080"
+jenkins_site_url=""
+jenkins_tunneling_local_port_default_site="46896"
+jenkins_dl_path="/home/$jenkins_user/dl"
+jenkins_rsync_ssh_command="ssh -i $jenkins_id -o StrictHostKeyChecking=no"
+jenkins_cli_jar="/home/$jenkins_user/jenkins-cli.jar"
+
+# reviewboard param
+reviewboard_tunneling_local_port_default_site="46897"
+reviewboard_site_port="80"
+reviewboard_site_url="reviewboard"
+reviewboard_server_url="http://localhost:\
+$reviewboard_tunneling_local_port_default_site/$reviewboard_site_url"
+reviewboard_repository="MYCODE"
+
+# list of features supported by please and associated functions
+# format: feature, function, help_function
+# Keep stuff aligned.
+driver_data_delimiter=","
+driver_data_feature_field=1
+driver_data_function_field=2
+driver_data_help_function_field=3
+driver_data="\n
+access-jenkins-site                            , \
+please_access_jenkins_site                     , \
+please_access_jenkins_site_help                , \
+\n
+access-reviewboard-site                        , \
+please_access_reviewboard_site                 , \
+please_access_reviewboard_site_help            , \
+\n
+build                                          , \
+please_build                                   , \
+please_build_help                              , \
+\n
+build-all                                      , \
+please_build_all                               , \
+please_build_all_help                          , \
+\n
+build-doc                                      , \
+please_build_doc                               , \
+please_build_doc_help                          , \
+\n
+build-gcc-x64-debug                            , \
+please_build_gcc_x64_debug                     , \
+please_build_short_help                        , \
+\n
+build-gcc-x64-debug-gcov                       , \
+please_build_gcc_x64_debug_gcov                , \
+please_build_short_help                        , \
+\n
+build-gcc-x64-release                          , \
+please_build_gcc_x64_release                   , \
+please_build_short_help                        , \
+\n
+build-gcc-lto-x64-release                      , \
+please_build_gcc_lto_x64_release               , \
+please_build_short_help                        , \
+\n
+cppcheck                                       , \
+please_cppcheck                                , \
+please_cppcheck_help                           , \
+\n
+docker-build                                   , \
+please_docker_build                            , \
+please_docker_build_help                       , \
+\n
+docker-exec                                    , \
+please_docker_exec                             , \
+please_docker_exec_help                        , \
+\n
+help                                           , \
+please_help                                    , \
+                                               , \
+\n
+help-rest                                      , \
+please_help_rest                               , \
+                                               , \
+\n
+jenkins-build                                  , \
+please_jenkins_build                           , \
+please_jenkins_build_help                      , \
+\n
+jenkins-cli                                    , \
+please_jenkins_cli                             , \
+please_jenkins_cli_help                        , \
+\n
+jenkins-ssh                                    , \
+please_jenkins_ssh                             , \
+please_jenkins_ssh_help                        , \
+\n
+lcov                                           , \
+please_lcov                                    , \
+please_lcov_help                               , \
+\n
+post-code-review                               , \
+please_post_code_review                        , \
+please_post_code_review_help                   , \
+\n
+rst2man                                        , \
+please_rst2man                                 , \
+please_rst2man_help                            , \
+\n
+"
+
+############################## Internal functions #########################
+
+# print info with arguments in parameters - print date after info
+show_info()
+{
+  echo -e "#please-info: $* ($(date -R))" 1>&2
+}
+
+# print error with arguments in parameters
+show_error()
+{
+  echo -e 1>&2 "\e[31m#---------------- please-ERROR -------------\e[m"
+  echo -e 1>&2 "\e[31mplease-error: $* ($(date -R))\e[m"
+}
+
+# print info and exit (code 0)
+exit_info()
+{
+  show_info "$@"
+  exit 0
+}
+
+# print error and exit (code 1)
+die()
+{
+  show_error "$@"
+  exit 1
+}
+
+# print error and use kill 0
+die_and_kill()
+{
+  show_error "$@"
+  kill 0
+}
+
+# print features available
+list_features()
+{
+  echo "please features available are:"
+  echo
+  echo -e "$driver_data" | sed -e "/^\s*$/d" |
+    cut -f $driver_data_feature_field -d $driver_data_delimiter |
+    sed -e "s/^\s*/- /g"
+  echo
+}
+
+# verify needed tools are installed
+check_needed_tools()
+{
+    git=$(which git)
+    [ -z $git ] && die "git is needed"
+    docker=$(which docker)
+    [ -z $docker ] && die "docker is needed\n\
+https://docs.docker.com/install/linux/docker-ce/debian/"
+    docker images >&/dev/null ||
+        die "ERROR ACCESSING DOCKER: need to add current user in docker group\n\
+execute 'sudo usermod -g docker $USER'"
+}
+
+__sb_root=
+# check current folder is in a git sandbox and go to sandbox root
+check_git_sandbox()
+{
+  local root=$(git rev-parse --show-toplevel | xargs readlink -f)
+  [ "$root" == "" ] && die "you must be in a git repository"
+  cd "$root"
+  __sb_root=$root
+}
+
+# fix permissions on ssh private keys
+fix_ssh_key_permissions()
+{
+  chmod 600 "$jenkins_id"
+}
+
+# original path where please command was called
+__command_call_path=$(pwd | xargs readlink -f)
+get_command_call_path()
+{
+  echo "$__command_call_path"
+}
+
+# root of please sandbox
+get_sandbox_root()
+{
+  echo "$__sb_root"
+}
+
+############################## Action functions #########################
+
+# Build sandbox using given parameters
+# will get dependencies for each binary/lib in the output folder as well
+# after a build, all libraries concerned are embedded and code is self contained
+# to run on any linux system
+build_sandbox()
+{
+  [ $# -lt 11 ] && die "usage: compiler c_compiler cxx_compiler ar ranlib\
+    arch build_type\
+    qemu_binary qemu_prefix arch_loader\
+    extra_flags"
+  local compiler="$1"
+  shift
+  local c_compiler="$1"
+  shift
+  local cxx_compiler="$1"
+  shift
+  local ar="$1"
+  shift
+  local ranlib="$1"
+  shift
+  local arch="$1"
+  shift
+  local build_type="$1"
+  shift
+  local qemu_binary="$1"
+  shift
+  local qemu_prefix="$1"
+  shift
+  local arch_loader="$1"
+  shift
+  local extra_flags="$1"
+  shift
+
+  local build_id="$compiler""_""$arch""_""$build_type"
+  local build_dir="$(get_sandbox_root)/$build_directory_name/$build_id"
+  local build_bin_tmp_dir="$build_dir/tmp_bin"
+  local build_bin_dir="$build_dir/bin"
+  local build_lib_dir="$build_bin_dir/lib"
+  mkdir -p "$build_dir"
+  mkdir -p "$build_bin_dir"
+  mkdir -p "$build_lib_dir"
+
+  local cmake_build_type="-DCMAKE_BUILD_TYPE=$build_type"
+  local cmake_c_compiler="-DCMAKE_C_COMPILER=$c_compiler"
+  local cmake_cxx_compiler="-DCMAKE_CXX_COMPILER=$cxx_compiler"
+  local cmake_ar="-DCMAKE_AR=$ar"
+  local cmake_ranlib="-DCMAKE_RANLIB=$ranlib"
+  local compile_extra_flags="-DCOMPILE_EXTRA_FLAGS=$extra_flags"
+
+  show_info "cmake"
+  show_info "cmake config\n$cmake_build_type\n$cmake_c_compiler\n\
+$cmake_cxx_compiler\n$cmake_ar\n$cmake_ranlib\n$compile_extra_flags\n"
+
+  cd "$build_dir"
+  cmake ../../ "$cmake_build_type"\
+               "$cmake_c_compiler"\
+               "$cmake_cxx_compiler"\
+               "$cmake_ar"\
+               "$cmake_ranlib"\
+               "$compile_extra_flags"\
+               -G Ninja || die "cmake failed"
+
+  show_info "ninja"
+  ninja "$@"
+  [ $? -ne 0 ] && die "build $build_id failed"
+
+  cp $build_dir/compile_commands.json "$(get_sandbox_root)/"
+
+  show_info "copy binaries dep in $build_lib_dir"
+  err=0
+  for file in $(find "$build_bin_tmp_dir/" -type f)
+  do
+    # copy from bin_tmp folder to bin folder
+    # we do this to ensure deps are not taken from lib folder on next build
+    rsync -ac "$file" "$build_bin_dir"
+    # we must retrieve deps for each file
+    # we do that using qemu + loader (option --list) for given arch
+    "$qemu_binary" -L "$qemu_prefix" "$arch_loader" --list "$file" ||
+        die "missing library for $file"
+  done | grep "=>" | # we filter deps
+         sed -e 's/\s*//g' -e 's/(.*//g' -e 's/>//g' |
+         grep -v '/ld-linux.so' | # do not get loader as dep
+         sort -u |
+         while read line # for each unique dep, we copy it here
+         do
+           local libname=$(echo "$line" | cut -f 1 -d '=')
+           local libpath=$(echo "$line" | cut -f 2 -d '=')
+           # copy lib from qemu_prefix
+           rsync -acL "$qemu_prefix/$libpath" "$build_lib_dir/$libname" ||
+             die "error copying $libpath"
+         done || die "build failed"
+
+  show_info "build succeeded - binaries are in $build_bin_dir"
+}
+
+local_tunneling_from_jenkins()
+{
+  [ $# -ne 2 ] && die "usage: local_port jenkins_port"
+
+  local local_port="$1"
+  shift
+  local jenkins_port="$1"
+  shift
+
+  ssh -o StrictHostKeyChecking=no -i "$jenkins_id"\
+    -N -L "$local_port:localhost:$jenkins_port"\
+    "$jenkins_user@$jenkins_machine" ||
+    exit_info "ssh tunnel from $local_port to $jenkins_port closed"
+}
+
+web_tunneling_from_jenkins()
+{
+  [ $# -ne 3 ] && die "usage: local_port jenkins_port url"
+
+  local local_port="$1"
+  shift
+  local jenkins_port="$1"
+  shift
+  local url="$1"
+  shift
+
+  show_info "access open at http://localhost:$local_port/$url"
+  show_info "press CTRL-C when you are done"
+  local_tunneling_from_jenkins "$local_port" "$jenkins_port"
+}
+
+############################## please_* functions #########################
+
+print_whole_help()
+{
+  # general help
+  cat << EOF
+======
+please
+======
+
+What is please ?
+================
+
+please offers a set of commands for user and a set of commands for developer to
+be used for any kind of work.
+
+Any please command can be called from any place in your sandbox.
+It will automatically find root of it and go there.
+
+please help will give you complete help for all commands.
+You can ask help for one feature by using please help feature.
+
+All the help is written in ReStructured Text, a lightweight markup language.
+
+By default, this help is printed using man (formatted to 80 chars) and rst2man.
+
+EOF
+
+echo "Features"
+echo "========"
+echo
+list_features
+echo -e "$driver_data" | sed -e "s/\s*//g" | while read feature_data
+do
+  local feature=$(echo "$feature_data" |
+                  cut -f $driver_data_feature_field -d $driver_data_delimiter)
+  local feature_help_function=$(echo "$feature_data" |
+            cut -f $driver_data_help_function_field -d $driver_data_delimiter)
+  if [ "$feature_help_function" != "" ]
+  then
+    echo
+    echo "$feature"
+    echo "$feature" | sed -e "s/./-/g" | cat
+    echo
+    $feature_help_function
+  fi
+done
+}
+
+please_help_rest()
+{
+  # print help for please in rest format
+
+  [ $# -gt 1 ] && die "usage: [feature]"
+
+  if [ $# -eq 1 ]
+  then
+    local feature=$1
+    local feature_data=$(echo -e "$driver_data" |
+                         sed -e "s/\s*//g" |
+                         grep "^$feature,")
+    if [ "$feature_data" == "" ]
+    then
+      list_features
+      die "feature $feature is not available"
+    fi
+    # print help for feature
+    echo "please $feature" | sed -e "s/./=/g"
+    echo "please $feature"
+    echo "please $feature" | sed -e "s/./=/g"
+    echo
+    local help_function=$(echo "$feature_data" |
+              cut -f $driver_data_help_function_field -d $driver_data_delimiter)
+    $help_function
+    echo
+    return
+  fi
+
+  print_whole_help
+}
+
+please_help()
+{
+  # print help for please
+
+  [ $# -gt 1 ] && die "usage: [feature]"
+
+  man <(please_help_rest "$@" | rst2man)
+}
+
+#####################################
+
+please_access_jenkins_site_help()
+{
+  cat << EOF
+create an ssh tunnel so you can access jenkins website.
+
+Press Ctrl-C when you are done browsing the website.
+
+usage: [port]
+
+port (optional): your localhost port onto which you can access jenkins website.
+EOF
+}
+
+please_access_jenkins_site()
+{
+  [ $# -gt 1 ] && die "usage: [port]"
+  local port="$jenkins_tunneling_local_port_default_site"
+  [ $# -eq 1 ] && port="$1"
+
+  web_tunneling_from_jenkins\
+    "$port" "$jenkins_site_jenkins_port" "$jenkins_site_url"
+}
+
+#####################################
+
+please_access_reviewboard_site_help()
+{
+  cat << EOF
+create an ssh tunnel so you can access reviewboard website.
+
+Press Ctrl-C when you are done browsing the website.
+
+usage: [port]
+
+port (optional): your localhost port onto which you can access reviewboard site.
+EOF
+}
+
+please_access_reviewboard_site()
+{
+  [ $# -gt 1 ] && die "usage: [port]"
+  local port="$reviewboard_tunneling_local_port_default_site"
+  [ $# -eq 1 ] && port="$1"
+
+  web_tunneling_from_jenkins\
+    "$port" "$reviewboard_site_port" "$reviewboard_site_url"
+}
+
+#####################################
+
+please_build_short_help()
+{
+  cat << EOF
+see help for please build
+EOF
+}
+
+please_build_all_help()
+{
+  cat << EOF
+build all types of configurations possible (per compiler, debug/release/lto)
+EOF
+}
+
+please_build_help()
+{
+  cat << EOF
+build all binaries (default is gcc x64 debug build).
+
+Automatically calls cmake and then ninja.
+All parameters are forwarded to ninja.
+
+If you want to build with N cores, use -j N.
+To trigger a full rebuild, add -B.
+To get verbose build, add VERBOSE=1.
+
+lto builds are using Link Time Optimization for better performance in release
+binaries.
+EOF
+}
+
+please_lcov_help()
+{
+  cat << EOF
+Generates HTML interface for gcov results.
+EOF
+}
+
+please_lcov()
+{
+  local gcov_build_path=\
+"$(get_sandbox_root)/$build_directory_name/gcc_x64_debug"
+  local coverage_file="$gcov_build_path/coverage.info"
+
+  lcov  --directory "$gcov_build_path/lib" --output-file "$coverage_file"\
+    --capture || die "lcov failed"
+  lcov  --directory "$gcov_build_path/lib"  --extract "$coverage_file" '*.cpp'\
+    --output-file "$coverage_file" || die "lcov failed"
+  genhtml "$coverage_file" --output-directory "$gcov_build_path/lcov" ||\
+    die "genhtml failed"
+  echo "Coverage information generated in:"
+  echo "  file://$gcov_build_path/lcov/index.html"
+}
+
+please_build()
+{
+  please_build_gcc_x64_debug "$@"
+}
+
+please_build_gcc_x64_debug_gcov()
+{
+  build_sandbox "gcc" $gcc_x64_full_path $gxx_x64_full_path\
+    $gcc_ar_x64_full_path $gcc_ranlib_x64_full_path\
+    "x64" "debug"\
+    "$qemu_x64_full_path" "$qemu_x64_prefix" "$loader_x64_full_path"\
+    "-fprofile-arcs -ftest-coverage"\
+    "$@"
+}
+
+please_build_gcc_x64_debug()
+{
+  build_sandbox "gcc" $gcc_x64_full_path $gxx_x64_full_path\
+    $gcc_ar_x64_full_path $gcc_ranlib_x64_full_path\
+    "x64" "debug"\
+    "$qemu_x64_full_path" "$qemu_x64_prefix" "$loader_x64_full_path"\
+    ""\
+    "$@"
+}
+
+please_build_gcc_x64_release()
+{
+  build_sandbox "gcc" $gcc_x64_full_path $gxx_x64_full_path\
+    $gcc_ar_x64_full_path $gcc_ranlib_x64_full_path\
+    "x64" "release"\
+    "$qemu_x64_full_path" "$qemu_x64_prefix" "$loader_x64_full_path"\
+    ""\
+    "$@"
+}
+
+please_build_gcc_lto_x64_release()
+{
+  build_sandbox "gcc_lto" $gcc_x64_full_path $gxx_x64_full_path\
+    $gcc_ar_x64_full_path $gcc_ranlib_x64_full_path\
+    "x64" "release"\
+    "$qemu_x64_full_path" "$qemu_x64_prefix" "$loader_x64_full_path"\
+    "$gcc_lto_flag"\
+    "$@"
+}
+
+please_build_all()
+{
+  please_build_gcc_x64_debug       "$@"
+  please_build_gcc_x64_debug_gcov        "$@"
+  please_build_gcc_x64_release     "$@"
+  please_build_gcc_lto_x64_release "$@"
+}
+
+#####################################
+
+please_build_doc_help()
+{
+  cat << EOF
+build documentation for projet.
+
+Builds doxygen doc + calls rst2html on all rst files in doc folder.
+EOF
+}
+
+please_build_doc()
+{
+  rm -rf "$doc_output_path"
+  mkdir -p "$doc_output_path"
+  show_info "generate doxygen doc"
+
+  doxygen "$doc_doxygen_cfg_path" > /dev/null ||
+    die "doxygen doc creation failed"
+
+  (cd $doc_input_path && find -name '*.rst') | while read doc
+  do
+    local dirname=$(dirname "$doc")
+    local basename=$(basename "$doc")
+    local input="$doc_input_path/$doc"
+    local output="$doc_output_path/$doc"".html"
+    mkdir -p $doc_output_path/$dirname
+    show_info "convert $input to $output"
+    rst2html "$input" > "$output"
+  done
+
+  local please_help_file="$doc_output_path/please_help.html"
+  show_info "generate please help $please_help_file"
+  please_help_rest | rst2html > "$please_help_file"
+
+  show_info "doc generated in $doc_output_path"
+}
+
+#####################################
+
+please_cppcheck_help()
+{
+  cat << EOF
+  "usage: ./please cppcheck -j4 2> /tmp/cppcheck.log"
+  "Launches a static tool that scans all the code."
+  "cppcheck --help for options."
+  "options are forwarded to the script."
+EOF
+}
+
+please_cppcheck()
+{
+  cppcheck --enable=performance,style,warning,portability -Iinclude/\
+    -I/usr/include/ include/ lib/ src/ unittests/ -DBOOST_ALL_DYN_LINK "$@"
+}
+
+###############################################################################
+
+please_docker_build_help()
+{
+  cat << EOF
+build docker image $docker_namespace:$docker_build_env_name
+
+usage: no args
+EOF
+}
+
+please_docker_build()
+{
+  [ $# -ne 0 ] && die "usage: no args"
+
+  name="$docker_namespace:$docker_build_env_name"
+  show_info "building docker image $name"
+  docker build\
+    -t "$docker_namespace":"$docker_build_env_name"\
+    -f $docker_context/"$docker_build_env_name".Dockerfile\
+    "$@"\
+    $docker_context || die "build failed"
+}
+
+###############################################################################
+
+# docker
+_docker_exec()
+{
+  XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR+x}
+  # pulse audio must be installed in target container
+  docker run -it --privileged --rm=true\
+  -e TERM=xterm-256color -e LC_ALL=en_US.UTF-8 -e LOCALE=en_US.UTF-8\
+  -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix\
+  -w $(pwd) -v $HOME:$HOME -v $(pwd):$(pwd)\
+  -v /data:/data\
+  -e USER=$USER \
+  -e XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR\
+  -v /dev/input/:/dev/input/\
+  -v /var/lib/docker:/var/lib/docker\
+  -v /var/run/docker.sock:/var/run/docker.sock\
+  --shm-size 4G\
+  -e PULSE_SERVER=unix:${XDG_RUNTIME_DIR}/pulse/native\
+  -v ${XDG_RUNTIME_DIR}:${XDG_RUNTIME_DIR}\
+  $(id -G | tr ' ' '\n' | sed -e 's/^/--group-add /g' | tr '\n' ' ') \
+  "$@"
+}
+
+please_docker_exec_help()
+{
+  cat << EOF
+execute a command in build environment.
+
+usage: command_to_execute arg1 arg2...
+EOF
+}
+
+please_docker_exec()
+{
+  [ $# -lt 1 ] && die "needs one command to execute"
+
+  # always build docker environment
+  please_docker_build
+
+  if [ ! -z "${PLEASE_INCEPTION_+x}" ]
+  then
+    # we are already in build env - execute straight
+    "$@"
+    return $?
+  fi
+
+  docker_opts="-e PLEASE_INCEPTION_=1"
+  [ -z "${PLEASE_DEBUG+x}" ] || docker_opts="$docker_opts -e PLEASE_DEBUG=1"
+  # say we are inside build env
+  _docker_exec -u $UID $docker_opts "$docker_namespace:$docker_build_env_name"\
+      "$@"
+}
+
+#####################################
+
+please_jenkins_build_help()
+{
+  cat << EOF
+continuous build for jenkins.
+
+build env is automatically updated.
+Builds following configurations:
+
+- gcc-x64-release
+
+usage: no args
+EOF
+}
+
+please_jenkins_build()
+{
+  [ $# -ne 0 ] && die "usage: no args"
+
+  "$please_bin" update-build-env || die "update build env failed"
+  "$please_bin" build-gcc-x64-release || die "gcc x64 build failed"
+
+  show_info "build is ok!"
+}
+
+#####################################
+
+please_jenkins_ssh_help()
+{
+  cat << EOF
+ssh to jenkins machine.
+
+All parameters are forwarded to ssh.
+EOF
+}
+
+please_jenkins_ssh()
+{
+  ssh -o StrictHostKeyChecking=no -i "$jenkins_id"\
+    "$jenkins_user@$jenkins_machine" "$@"
+}
+
+#####################################
+
+please_jenkins_cli_help()
+{
+  cat << EOF
+control jenkins server using jenkins-cli.jar. See documentation for it on the
+web.
+
+Command is launched using jenkins-ssh, thus you don't need to use
+jenkins-access-site before using this.
+
+usage: jenkins_cli_command
+EOF
+}
+
+please_jenkins_cli()
+{
+  please_jenkins_ssh java -jar $jenkins_cli_jar -noKeyAuth\
+    -s http://localhost:$jenkins_site_jenkins_port "$@"
+}
+
+#####################################
+
+please_post_code_review_help()
+{
+  cat << EOF
+post a code review on reviewboard.
+
+usage: git_revision [git_revision_end]
+
+git_revision: revision to review
+git_revision_end: if given, all revisions between git_revision and
+git_revision_end are asked for a code review.
+
+example:
+
+- 'post-code-review HEAD~1' will review HEAD~1 commit.
+- 'post-code-review HEAD~3 HEAD' will review commits between HEAD~3 and HEAD.
+- 'post-code-review origin/dev HEAD' will review all commits you made on dev
+  branch.
+EOF
+}
+
+please_post_code_review()
+{
+  [ $# -gt 2 -o $# -eq 0 ] && die "usage: git_revision_start [git_revision_end]"
+
+  local start="$1"
+  shift
+  local end=""
+  [ $# -eq 1 ] && end="$1"
+
+  please_access_reviewboard_site &
+  # wait for ssh tunnel to come
+  sleep 1
+  show_info "wait 3 seconds for ssh tunnel to become active"
+  sleep 3
+  show_info "posting code review"
+
+  rbt post --server $reviewboard_server_url\
+           --repository $reviewboard_repository\
+           "$start" $end || die_and_kill "posting review failed"
+
+  show_info "press CTRL-C when you are done visiting reviewboard"
+  wait
+}
+
+#####################################
+
+please_rst2man_help()
+{
+  cat << EOF
+print a reStructuredText document with man.
+
+usage: rst_file
+EOF
+}
+
+please_rst2man()
+{
+  [ $# -ne 1 ] && die "needs one file to convert"
+
+  local file="$1"
+
+  man <(rst2man "$file")
+}
+
+#####################################
+
+driver()
+{
+  # get feature to execute
+  if [ $# -lt 1 ]
+  then
+    list_features
+    die "you must give at least one parameter (help for printing help)"
+  fi
+  local feature=$1
+  shift
+  local feature_data=$(echo -e "$driver_data" |
+                       sed -e "s/\s*//g" |
+                       grep "^$feature,")
+  if [ "$feature_data" == "" ]
+  then
+    list_features
+    die "feature $feature is unknown"
+  fi
+  local feature_function=$(echo "$feature_data" |
+                   cut -f $driver_data_function_field -d $driver_data_delimiter)
+
+  # check if we are in build env. If not, switch to it recursively.
+  if [ -z "${PLEASE_INCEPTION_+x}" ]
+  then
+    case "$feature" in
+      "access-jenkins-site"|\
+      "access-reviewboard-site"|\
+      "docker-build"|\
+      "docker-exec"|\
+      "jenkins-build"|\
+      "jenkins-cli"|\
+      "jenkins-ssh"\
+      )
+        # do not enter in build env for those commands
+        ;;
+      *)
+        "$please_bin" docker-exec "$please_bin" "$feature" "$@"
+        exit $?
+        ;;
+    esac
+  fi
+
+  check_needed_tools
+
+  check_git_sandbox
+  # we change permissions on ssh private keys because git creates file with too
+  # much permissions by default.
+  fix_ssh_key_permissions
+
+  if [ "$(echo "$feature" | grep help)" != "" ]
+  then
+    $feature_function "$@"
+    return
+  fi
+
+  show_info "please $feature" "$@"
+
+  $feature_function "$@"
+  return $?
+}
+
+driver "$@"
+ret=$?
+exit $ret

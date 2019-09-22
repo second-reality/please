@@ -1,2 +1,0 @@
-# please
-Default cpp project
