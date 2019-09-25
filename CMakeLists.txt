@@ -47,7 +47,6 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${CXX_FLAGS_DEBUG}")
 # Compiler flags - warnings for the win!
 set(COMMON_FLAGS
     -Wall -Wextra -Wpedantic -Werror
-    -Wl,-rpath,$ORIGIN/lib # to load shared objects from lib folder
     ${COMPILE_EXTRA_FLAGS} # can be given when calling cmake
     )
 set(C_ONLY_FLAGS
@@ -73,6 +72,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CXX_FLAGS}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tmp_bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/ar)
+
+# set rpath to copied libraries
+# behavior changed in 2016 for ld using RUNPATH instead of RPATH
+# thus, we force old behavior with second option
+# see https://stackoverflow.com/questions/52018092/how-to-set-rpath-and-runpath-with-gcc-ld
+SET(CMAKE_EXE_LINKER_FLAGS "-Wl,-rpath,\\$ORIGIN/ext_lib -Wl,--disable-new-dtags")
 
 # Useful variables that are used to parameter build
 #set(CMAKE_BUILD_TYPE Debug)

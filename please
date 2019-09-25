@@ -280,7 +280,7 @@ build_sandbox()
   local build_dir="$(get_sandbox_root)/$build_directory_name/$build_id"
   local build_bin_tmp_dir="$build_dir/tmp_bin"
   local build_bin_dir="$build_dir/bin"
-  local build_lib_dir="$build_bin_dir/lib"
+  local build_lib_dir="$build_bin_dir/ext_lib"
   mkdir -p "$build_dir"
   mkdir -p "$build_bin_dir"
   mkdir -p "$build_lib_dir"
