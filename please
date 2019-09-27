@@ -552,7 +552,7 @@ EOF
 please_lcov()
 {
   local gcov_build_path=\
-"$(get_sandbox_root)/$build_directory_name/gcc_x64_debug"
+"$(get_sandbox_root)/$build_directory_name/gcc_x64_debug_gcov"
   local coverage_file="$gcov_build_path/coverage.info"
 
   lcov  --directory "$gcov_build_path/lib" --output-file "$coverage_file"\
@@ -574,7 +574,7 @@ please_build_gcc_x64_debug_gcov()
 {
   build_sandbox "gcc" $gcc_x64_full_path $gxx_x64_full_path\
     $gcc_ar_x64_full_path $gcc_ranlib_x64_full_path\
-    "x64" "debug"\
+    "x64" "debug_gcov"\
     "$qemu_x64_full_path" "$qemu_x64_prefix" "$loader_x64_full_path"\
     "-fprofile-arcs -ftest-coverage"\
     "$@"
