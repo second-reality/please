@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # create user
 # to get sound, we must have pulse audio installed

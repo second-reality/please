@@ -2,3 +2,4 @@
 *.swp
 /.clangd
 /x
+/jenkins_home

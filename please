@@ -30,7 +30,6 @@ gcc_ar_x64_full_path="/usr/bin/gcc-ar"
 gcc_ranlib_x64_full_path="/usr/bin/gcc-ranlib"
 qemu_x64_full_path="/usr/bin/qemu-x86_64"
 qemu_x64_prefix="/"
-x64_prefix="/usr"
 loader_x64_full_path="/lib64/ld-linux-x86-64.so.2"
 
 #env
@@ -44,15 +43,9 @@ doc_output_path="$build_directory_name/docs"
 doc_doxygen_cfg_path="$doc_input_path/doxygen.cfg"
 
 # jenkins param
-jenkins_machine="dev.com"
-jenkins_id="tools/jenkins/ssh_keys/id_rsa"
-jenkins_user="jenkins"
+docker_jenkins_env_name="jenkins"
 jenkins_site_jenkins_port="8080"
-jenkins_site_url=""
-jenkins_tunneling_local_port_default_site="46896"
-jenkins_dl_path="/home/$jenkins_user/dl"
-jenkins_rsync_ssh_command="ssh -i $jenkins_id -o StrictHostKeyChecking=no"
-jenkins_cli_jar="/home/$jenkins_user/jenkins-cli.jar"
+jenkins_home="jenkins_home"
 
 # reviewboard param
 reviewboard_tunneling_local_port_default_site="46897"
@@ -70,14 +63,6 @@ driver_data_feature_field=1
 driver_data_function_field=2
 driver_data_help_function_field=3
 driver_data="\n
-access-jenkins-site                            , \
-please_access_jenkins_site                     , \
-please_access_jenkins_site_help                , \
-\n
-access-reviewboard-site                        , \
-please_access_reviewboard_site                 , \
-please_access_reviewboard_site_help            , \
-\n
 build                                          , \
 please_build                                   , \
 please_build_help                              , \
@@ -118,6 +103,10 @@ docker-exec                                    , \
 please_docker_exec                             , \
 please_docker_exec_help                        , \
 \n
+docker-launch-jenkins                          , \
+please_docker_launch_jenkins                   , \
+please_docker_launch_jenkins_help              , \
+\n
 help                                           , \
 please_help                                    , \
                                                , \
@@ -129,14 +118,6 @@ please_help_rest                               , \
 jenkins-build                                  , \
 please_jenkins_build                           , \
 please_jenkins_build_help                      , \
-\n
-jenkins-cli                                    , \
-please_jenkins_cli                             , \
-please_jenkins_cli_help                        , \
-\n
-jenkins-ssh                                    , \
-please_jenkins_ssh                             , \
-please_jenkins_ssh_help                        , \
 \n
 lcov                                           , \
 please_lcov                                    , \
@@ -220,12 +201,6 @@ check_git_sandbox()
   [ "$root" == "" ] && die "you must be in a git repository"
   cd "$root"
   __sb_root=$root
-}
-
-# fix permissions on ssh private keys
-fix_ssh_key_permissions()
-{
-  chmod 600 "$jenkins_id"
 }
 
 # original path where please command was called
@@ -338,37 +313,6 @@ $cmake_cxx_compiler\n$cmake_ar\n$cmake_ranlib\n$compile_extra_flags\n"
   show_info "build succeeded - binaries are in $build_bin_dir"
 }
 
-local_tunneling_from_jenkins()
-{
-  [ $# -ne 2 ] && die "usage: local_port jenkins_port"
-
-  local local_port="$1"
-  shift
-  local jenkins_port="$1"
-  shift
-
-  ssh -o StrictHostKeyChecking=no -i "$jenkins_id"\
-    -N -L "$local_port:localhost:$jenkins_port"\
-    "$jenkins_user@$jenkins_machine" ||
-    exit_info "ssh tunnel from $local_port to $jenkins_port closed"
-}
-
-web_tunneling_from_jenkins()
-{
-  [ $# -ne 3 ] && die "usage: local_port jenkins_port url"
-
-  local local_port="$1"
-  shift
-  local jenkins_port="$1"
-  shift
-  local url="$1"
-  shift
-
-  show_info "access open at http://localhost:$local_port/$url"
-  show_info "press CTRL-C when you are done"
-  local_tunneling_from_jenkins "$local_port" "$jenkins_port"
-}
-
 ############################## please_* functions #########################
 
 print_whole_help()
@@ -457,56 +401,6 @@ please_help()
   [ $# -gt 1 ] && die "usage: [feature]"
 
   man <(please_help_rest "$@" | rst2man)
-}
-
-#####################################
-
-please_access_jenkins_site_help()
-{
-  cat << EOF
-create an ssh tunnel so you can access jenkins website.
-
-Press Ctrl-C when you are done browsing the website.
-
-usage: [port]
-
-port (optional): your localhost port onto which you can access jenkins website.
-EOF
-}
-
-please_access_jenkins_site()
-{
-  [ $# -gt 1 ] && die "usage: [port]"
-  local port="$jenkins_tunneling_local_port_default_site"
-  [ $# -eq 1 ] && port="$1"
-
-  web_tunneling_from_jenkins\
-    "$port" "$jenkins_site_jenkins_port" "$jenkins_site_url"
-}
-
-#####################################
-
-please_access_reviewboard_site_help()
-{
-  cat << EOF
-create an ssh tunnel so you can access reviewboard website.
-
-Press Ctrl-C when you are done browsing the website.
-
-usage: [port]
-
-port (optional): your localhost port onto which you can access reviewboard site.
-EOF
-}
-
-please_access_reviewboard_site()
-{
-  [ $# -gt 1 ] && die "usage: [port]"
-  local port="$reviewboard_tunneling_local_port_default_site"
-  [ $# -eq 1 ] && port="$1"
-
-  web_tunneling_from_jenkins\
-    "$port" "$reviewboard_site_port" "$reviewboard_site_url"
 }
 
 #####################################
@@ -679,21 +573,30 @@ please_cppcheck()
 please_docker_build_help()
 {
   cat << EOF
-build docker image $docker_namespace:$docker_build_env_name
+build docker image $docker_namespace:image
 
-usage: no args
+usage: image name
+
+Available images are:
 EOF
+
+echo
+for img in $docker_context/*.Dockerfile
+do
+    echo - $(basename $img | sed -e 's/.Dockerfile//g')
+done
 }
 
 please_docker_build()
 {
-  [ $# -ne 0 ] && die "usage: no args"
+  [ $# -ne 1 ] && die "usage: image_name"
+  name=$1
+  shift
 
-  name="$docker_namespace:$docker_build_env_name"
-  show_info "building docker image $name"
+  show_info "building docker image $docker_namespace:$name"
   docker build\
-    -t "$docker_namespace":"$docker_build_env_name"\
-    -f $docker_context/"$docker_build_env_name".Dockerfile\
+    -t "$docker_namespace":"$name"\
+    -f $docker_context/"$name".Dockerfile\
     "$@"\
     $docker_context || die "build failed"
 }
@@ -705,11 +608,10 @@ _docker_exec()
 {
   XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR+x}
   # pulse audio must be installed in target container
-  docker run -it --privileged --rm=true\
+  docker run --privileged --rm=true\
   -e TERM=xterm-256color -e LC_ALL=en_US.UTF-8 -e LOCALE=en_US.UTF-8\
   -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix\
   -w $(pwd) -v $HOME:$HOME -v $(pwd):$(pwd)\
-  -v /data:/data\
   -e USER=$USER \
   -e XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR\
   -v /dev/input/:/dev/input/\
@@ -725,7 +627,7 @@ _docker_exec()
 please_docker_exec_help()
 {
   cat << EOF
-execute a command in build environment.
+execute a command in build environment $docker_namespace:$docker_build_env_name.
 
 usage: command_to_execute arg1 arg2...
 EOF
@@ -736,30 +638,55 @@ please_docker_exec()
   [ $# -lt 1 ] && die "needs one command to execute"
 
   # always build docker environment
-  please_docker_build
+  please_docker_build $docker_build_env_name
 
-  if [ ! -z "${PLEASE_INCEPTION_+x}" ]
+  if [ ! -z "${PLEASE_RECURSIVE_+x}" ]
   then
     # we are already in build env - execute straight
     "$@"
     return $?
   fi
 
-  docker_opts="-e PLEASE_INCEPTION_=1"
+  docker_opts="-e PLEASE_RECURSIVE_=1"
+  # check if we have interactive terminal
+  [ -t 1 ] && docker_opts="-it $docker_opts"
   [ -z "${PLEASE_DEBUG+x}" ] || docker_opts="$docker_opts -e PLEASE_DEBUG=1"
-  # say we are inside build env
-  _docker_exec -u $UID $docker_opts "$docker_namespace:$docker_build_env_name"\
-      "$@"
+  _docker_exec -u $UID $docker_opts\
+      "$docker_namespace:$docker_build_env_name" "$@"
 }
 
 #####################################
+
+please_docker_launch_jenkins_help()
+{
+  cat << EOF
+launch docker container to execute jenkins
+
+usage: no args
+EOF
+}
+
+please_docker_launch_jenkins()
+{
+  [ $# -ne 0 ] && die "usage: no args"
+
+  # always build docker jenkins
+  please_docker_build $docker_jenkins_env_name
+
+  show_info "Access to jenkins on http://localhost:$jenkins_site_jenkins_port"
+  jhome=$(get_sandbox_root)/$jenkins_home
+  mkdir -p $jhome $ && chmod 777 $jhome
+
+  _docker_exec -p $jenkins_site_jenkins_port:8080\
+      -v $jhome:$jhome -e JENKINS_HOME=$jhome\
+      "$docker_namespace:$docker_jenkins_env_name"
+}
 
 please_jenkins_build_help()
 {
   cat << EOF
 continuous build for jenkins.
 
-build env is automatically updated.
 Builds following configurations:
 
 - gcc-x64-release
@@ -772,48 +699,9 @@ please_jenkins_build()
 {
   [ $# -ne 0 ] && die "usage: no args"
 
-  "$please_bin" update-build-env || die "update build env failed"
   "$please_bin" build-gcc-x64-release || die "gcc x64 build failed"
 
   show_info "build is ok!"
-}
-
-#####################################
-
-please_jenkins_ssh_help()
-{
-  cat << EOF
-ssh to jenkins machine.
-
-All parameters are forwarded to ssh.
-EOF
-}
-
-please_jenkins_ssh()
-{
-  ssh -o StrictHostKeyChecking=no -i "$jenkins_id"\
-    "$jenkins_user@$jenkins_machine" "$@"
-}
-
-#####################################
-
-please_jenkins_cli_help()
-{
-  cat << EOF
-control jenkins server using jenkins-cli.jar. See documentation for it on the
-web.
-
-Command is launched using jenkins-ssh, thus you don't need to use
-jenkins-access-site before using this.
-
-usage: jenkins_cli_command
-EOF
-}
-
-please_jenkins_cli()
-{
-  please_jenkins_ssh java -jar $jenkins_cli_jar -noKeyAuth\
-    -s http://localhost:$jenkins_site_jenkins_port "$@"
 }
 
 #####################################
@@ -847,11 +735,6 @@ please_post_code_review()
   local end=""
   [ $# -eq 1 ] && end="$1"
 
-  please_access_reviewboard_site &
-  # wait for ssh tunnel to come
-  sleep 1
-  show_info "wait 3 seconds for ssh tunnel to become active"
-  sleep 3
   show_info "posting code review"
 
   rbt post --server $reviewboard_server_url\
@@ -906,16 +789,12 @@ driver()
                    cut -f $driver_data_function_field -d $driver_data_delimiter)
 
   # check if we are in build env. If not, switch to it recursively.
-  if [ -z "${PLEASE_INCEPTION_+x}" ]
+  if [ -z "${PLEASE_RECURSIVE_+x}" ]
   then
     case "$feature" in
-      "access-jenkins-site"|\
-      "access-reviewboard-site"|\
       "docker-build"|\
       "docker-exec"|\
-      "jenkins-build"|\
-      "jenkins-cli"|\
-      "jenkins-ssh"\
+      "docker-launch-jenkins"\
       )
         # do not enter in build env for those commands
         ;;
@@ -929,9 +808,6 @@ driver()
   check_needed_tools
 
   check_git_sandbox
-  # we change permissions on ssh private keys because git creates file with too
-  # much permissions by default.
-  fix_ssh_key_permissions
 
   if [ "$(echo "$feature" | grep help)" != "" ]
   then

@@ -5,13 +5,8 @@ RUN echo "deb-src http://deb.debian.org/debian buster main" >> /etc/apt/sources.
 ADD basic_debian_setup.sh /
 RUN /basic_debian_setup.sh && rm /basic_debian_setup.sh
 
-# docker
-RUN apt update && apt install -y apt-transport-https ca-certificates \
-                  curl gnupg2 software-properties-common &&\
-    curl -fsSL https://download.docker.com/linux/debian/gpg | apt-key add - &&\
-    apt-key fingerprint 0EBFCD88 &&\
-    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian buster stable" &&\
-    apt update && apt install -y docker-ce docker-compose
+ADD debian_install_docker.sh /
+RUN /debian_install_docker.sh && rm /debian_install_docker.sh
 
 # for development
 RUN apt update && apt install -y\
