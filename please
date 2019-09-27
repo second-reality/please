@@ -309,7 +309,7 @@ $cmake_cxx_compiler\n$cmake_ar\n$cmake_ranlib\n$compile_extra_flags\n"
   ninja "$@"
   [ $? -ne 0 ] && die "build $build_id failed"
 
-  cp $build_dir/compile_commands.json "$(get_sandbox_root)/"
+  cp $build_dir/compile_commands.json "$(get_sandbox_root)/$build_directory_name"
 
   show_info "copy binaries dep in $build_lib_dir"
   err=0

@@ -58,7 +58,6 @@ set(CXX_ONLY_FLAGS
     -std=c++14
     -Wold-style-cast
     -Woverloaded-virtual
-    -Wsuggest-override
     -Wzero-as-null-pointer-constant
     -DBOOST_ALL_DYN_LINK
     )
