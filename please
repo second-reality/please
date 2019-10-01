@@ -613,6 +613,8 @@ _docker_exec()
   -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix\
   -w $(pwd) -v $HOME:$HOME -v $(pwd):$(pwd)\
   -e USER=$USER \
+  -e HOME=$HOME \
+  -e SHELL=$SHELL \
   -e XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR\
   -v /dev/input/:/dev/input/\
   -v /var/lib/docker:/var/lib/docker\
