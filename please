@@ -190,7 +190,7 @@ check_needed_tools()
 https://docs.docker.com/install/linux/docker-ce/debian/"
     docker images >&/dev/null ||
         die "ERROR ACCESSING DOCKER: need to add current user in docker group\n\
-execute 'sudo usermod -g docker $USER'"
+execute 'sudo usermod -g docker $USER && sudo reboot'"
 }
 
 __sb_root=
@@ -614,11 +614,13 @@ _docker_exec()
   -w $(pwd) -v $HOME:$HOME -v $(pwd):$(pwd)\
   -e USER=$USER \
   -e HOME=$HOME \
-  -e SHELL=$SHELL \
   -e XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR\
   -v /dev/input/:/dev/input/\
   -v /var/lib/docker:/var/lib/docker\
   -v /var/run/docker.sock:/var/run/docker.sock\
+  -v /etc/passwd:/etc/passwd:ro \
+  -v /etc/group:/etc/group:ro \
+  -v /etc/shadow:/etc/shadow:ro \
   --shm-size 4G\
   -e PULSE_SERVER=unix:${XDG_RUNTIME_DIR}/pulse/native\
   -v ${XDG_RUNTIME_DIR}:${XDG_RUNTIME_DIR}\

@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 
-# create user
+# everyone can use sudo
 # to get sound, we must have pulse audio installed
 # to get vulkan, we must have mesa drivers installed
 # allows to get autocomplete for package install inside container
 
 dpkg --add-architecture i386 &&
 mkdir /etc/sudoers.d/ &&
-echo "user ALL=(root) NOPASSWD:ALL" >> /etc/sudoers.d/user &&
-chmod 0440 /etc/sudoers.d/user &&
-adduser user&&
+echo "ALL ALL=(root) NOPASSWD:ALL" >> /etc/sudoers.d/all &&
+chmod 0440 /etc/sudoers.d/all &&
 apt update &&
 apt install -y\
     alsa-utils\

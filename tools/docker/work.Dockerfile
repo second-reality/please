@@ -11,6 +11,7 @@ RUN /debian_install_docker.sh && rm /debian_install_docker.sh
 # for development
 RUN apt update && apt install -y\
     bear \
+    bzr \
     build-essential \
     ccache \
     cgdb \
@@ -28,6 +29,10 @@ RUN apt update && apt install -y\
     g++-multilib \
     gdb \
     gdbserver \
+    git \
+    git-gui \
+    git-svn \
+    git-remote-bzr \
     graphviz \
     lcov \
     libboost-all-dev \
@@ -35,6 +40,8 @@ RUN apt update && apt install -y\
     linux-perf \
     man \
     make \
+    mercurial \
+    fossil \
     meson \
     ninja-build \
     pandoc \
@@ -55,6 +62,7 @@ RUN apt update && apt install -y\
     rr \
     rtags \
     ssh \
+    subversion \
     texinfo \
     tig \
     tmux \
@@ -63,11 +71,6 @@ RUN apt update && apt install -y\
     valgrind \
     vim-gtk \
     xz-utils
-# yapf
-RUN pip3 install yapf
-# various version control systems
-RUN apt update && apt install -y\
-    bzr cvs cvs darcs fossil git mercurial subversion git-svn
 
 # vim coc autocomplete
 RUN apt update && apt install -y yarnpkg
