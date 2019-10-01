@@ -65,6 +65,9 @@ RUN apt update && apt install -y\
     xz-utils
 # yapf
 RUN pip3 install yapf
+# various version control systems
+RUN apt update && apt install -y\
+    bzr cvs cvs darcs fossil git mercurial subversion git-svn
 
 # vim coc autocomplete
 RUN apt update && apt install -y yarnpkg
