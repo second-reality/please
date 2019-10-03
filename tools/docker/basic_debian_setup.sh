@@ -5,6 +5,9 @@
 # to get vulkan, we must have mesa drivers installed
 # allows to get autocomplete for package install inside container
 
+# automatize deletion of statoverride file, that may cause issues when
+# installing package using another user than root
+
 dpkg --add-architecture i386 &&
 mkdir /etc/sudoers.d/ &&
 echo "ALL ALL=(root) NOPASSWD:ALL" >> /etc/sudoers.d/all &&
@@ -44,4 +47,6 @@ apt install -y\
     zip \
     wget &&
 apt upgrade -y &&
+echo "DPkg::Post-Invoke { \"rm -f /var/lib/dpkg/statoverride || true\"; };" >>\
+   /etc/apt/apt.conf.d/statoverride-clean &&
 rm /etc/apt/apt.conf.d/docker-clean && apt update
