@@ -33,6 +33,7 @@ RUN apt update && apt install -y\
     git-gui \
     git-svn \
     git-remote-bzr \
+    git-remote-hg \
     graphviz \
     lcov \
     libboost-all-dev \
