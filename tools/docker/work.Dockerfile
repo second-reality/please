@@ -35,6 +35,8 @@ RUN apt update && apt install -y\
     git-remote-bzr \
     git-remote-hg \
     graphviz \
+    ipython \
+    ipython3 \
     lcov \
     libboost-all-dev \
     libpython-all-dev \
