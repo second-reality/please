@@ -589,11 +589,13 @@ done
 
 please_docker_build()
 {
-  [ $# -ne 1 ] && die "usage: image_name"
+  [ $# -lt 1 ] && die "usage: image_name docker_args..."
   name=$1
   shift
 
-  show_info "building docker image $docker_namespace:$name"
+  show_info "building docker image $docker_namespace:$name (may be long)"
+  show_info "if you want to see progress, use\
+ './please docker-build $name' instead"
   docker build\
     -t "$docker_namespace":"$name"\
     -f $docker_context/"$name".Dockerfile\
@@ -642,7 +644,7 @@ please_docker_exec()
   [ $# -lt 1 ] && die "needs one command to execute"
 
   # always build docker environment
-  please_docker_build $docker_build_env_name
+  please_docker_build $docker_build_env_name -q
 
   if [ ! -z "${PLEASE_RECURSIVE_+x}" ]
   then
@@ -675,9 +677,11 @@ please_docker_launch_jenkins()
   [ $# -ne 0 ] && die "usage: no args"
 
   # always build docker jenkins
-  please_docker_build $docker_jenkins_env_name
+  please_docker_build $docker_jenkins_env_name -q
 
+  show_info "----------------------------------------------------------------"
   show_info "Access to jenkins on http://localhost:$jenkins_site_jenkins_port"
+  show_info "----------------------------------------------------------------"
   jhome=$(get_sandbox_root)/$jenkins_home
   mkdir -p $jhome && chmod 777 $jhome
 
