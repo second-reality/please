@@ -609,6 +609,7 @@ please_docker_build()
 _docker_exec()
 {
   XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR+x}
+  DISPLAY=${DISPLAY+x}
   # pulse audio must be installed in target container
   docker run --privileged --rm=true\
   -e TERM=xterm-256color -e LC_ALL=en_US.UTF-8 -e LOCALE=en_US.UTF-8\
