@@ -686,7 +686,7 @@ please_docker_launch_jenkins()
   jhome=$(get_sandbox_root)/$jenkins_home
   mkdir -p $jhome && chmod 777 $jhome
 
-  _docker_exec -p $jenkins_site_jenkins_port:8080\
+  _docker_exec -u $UID -p $jenkins_site_jenkins_port:8080\
       -v $jhome:$jhome -e JENKINS_HOME=$jhome\
       "$docker_namespace:$docker_jenkins_env_name"
 }
