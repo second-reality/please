@@ -32,7 +32,6 @@ RUN apt update && apt install -y\
     git \
     git-gui \
     git-svn \
-    git-remote-bzr \
     git-remote-hg \
     graphviz \
     ipython \
@@ -74,6 +73,12 @@ RUN apt update && apt install -y\
     valgrind \
     vim-gtk \
     xz-utils
+
+# get latest git-remote-bzr (fix for git timestamps)
+RUN cd /tmp &&\
+    wget https://raw.github.com/felipec/git-remote-bzr/master/git-remote-bzr &&\
+    chmod +x git-remote-bzr &&\
+    mv git-remote-bzr /usr/bin/git-remote-bzr
 
 # vim coc autocomplete
 RUN apt update && apt install -y yarnpkg
