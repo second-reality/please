@@ -618,6 +618,7 @@ _docker_exec()
   -e USER=$USER \
   -e HOME=$HOME \
   -e XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR\
+  -v /etc/localtime:/etc/localtime\
   -v /dev/input/:/dev/input/\
   -v /var/lib/docker:/var/lib/docker\
   -v /var/run/docker.sock:/var/run/docker.sock\
