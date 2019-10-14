@@ -4,7 +4,7 @@
 set -o pipefail
 # report unitialized variables
 set -u
-[ -z "${PLEASE_DEBUG+x}" ] || set -x
+[ -v PLEASE_DEBUG ] && set -x
 
 # This is please, a script which helps developer to do all stuff he needs
 # help function is available for each feature and is the documentation for it
@@ -608,8 +608,8 @@ please_docker_build()
 # docker
 _docker_exec()
 {
-  XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR+x}
-  DISPLAY=${DISPLAY+x}
+  XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-x}
+  DISPLAY=${DISPLAY:-x}
   # pulse audio must be installed in target container
   docker run --privileged --rm=true\
   -e TERM=xterm-256color -e LC_ALL=en_US.UTF-8 -e LOCALE=en_US.UTF-8\
@@ -648,7 +648,7 @@ please_docker_exec()
   # always build docker environment
   please_docker_build $docker_build_env_name -q
 
-  if [ ! -z "${PLEASE_RECURSIVE_+x}" ]
+  if [ -v PLEASE_RECURSIVE_ ]
   then
     # we are already in build env - execute straight
     "$@"
@@ -658,7 +658,7 @@ please_docker_exec()
   docker_opts="-e PLEASE_RECURSIVE_=1"
   # check if we have interactive terminal
   [ -t 1 ] && docker_opts="-it $docker_opts"
-  [ -z "${PLEASE_DEBUG+x}" ] || docker_opts="$docker_opts -e PLEASE_DEBUG=1"
+  [ -v PLEASE_DEBUG ] && docker_opts="$docker_opts -e PLEASE_DEBUG=1"
   _docker_exec -u $UID $docker_opts\
       "$docker_namespace:$docker_build_env_name" "$@"
 }
@@ -799,7 +799,7 @@ driver()
                    cut -f $driver_data_function_field -d $driver_data_delimiter)
 
   # check if we are in build env. If not, switch to it recursively.
-  if [ -z "${PLEASE_RECURSIVE_+x}" ]
+  if [ ! -v PLEASE_RECURSIVE_ ]
   then
     case "$feature" in
       "docker-build"|\
