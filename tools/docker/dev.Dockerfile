@@ -82,9 +82,9 @@ RUN cd /tmp &&\
 
 # vim coc autocomplete
 RUN apt update && apt install -y yarnpkg
-RUN echo "deb http://apt.llvm.org/buster/ llvm-toolchain-buster main" >> /etc/apt/sources.list &&\
+RUN echo "deb http://apt.llvm.org/buster/ llvm-toolchain-buster-9 main" >> /etc/apt/sources.list &&\
     wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key| apt-key add - &&\
-    apt update && apt install -y clang-10 lldb-10 lld-10 clangd-10
+    apt update && apt install -y clang-9 clangd-9 clang-tools-9
 
 # Rust
 ENV CARGO_HOME=/opt/rust/cargo
