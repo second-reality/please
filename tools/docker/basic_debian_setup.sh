@@ -50,3 +50,6 @@ apt upgrade -y &&
 echo "DPkg::Post-Invoke { \"rm -f /var/lib/dpkg/statoverride || true\"; };" >>\
    /etc/apt/apt.conf.d/statoverride-clean &&
 rm /etc/apt/apt.conf.d/docker-clean && apt update
+
+# tmux reads that file that erase PATH, thus delete it.
+rm -f /etc/profile
